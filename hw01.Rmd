@@ -1,0 +1,570 @@
+---
+title: "hw01"
+author: "Zijin Zhou"
+date: "2020/2/16"
+output: 
+  html_notebook: default
+  html_document: default
+---
+
+import packages
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(grid)
+library(dplyr)
+library(tidyr)
+library(htmlwidgets)
+library(plotly)
+library(purrr)
+library(stringr)
+library(DT)
+```
+
+import data
+```{r}
+scf <- read.table("survey_SCF.txt", sep = ",", header = TRUE) 
+```
+
+## 1. Debt over time
+### Debt and debt ratio over time
+
+**data set**
+```{r}
+scf_debt <- scf %>%
+  select(CASEID,YEAR,DEBT,ASSET,EDN_INST, LEVRATIO, DEBT2INC) %>%
+  group_by(YEAR) %>% 
+  summarise(debt_income = mean(DEBT2INC),
+            debt_asset= mean(LEVRATIO),
+            average_debt = mean(DEBT)) %>%
+  mutate(average_debt = average_debt/1000)#make it by 1000 dollars
+```
+
+**chart1**
+```{r}
+ggplot(scf_debt)+
+  geom_bar(aes(x=YEAR, y= average_debt, fill="average debt"),
+             stat="identity", width = 1)+
+  geom_line(aes(x=YEAR, y=debt_asset*200,
+              color = "debt/asset"),
+              group = 1, size = 1.2)+
+  geom_text(aes(label=round(debt_asset,2), 
+                x=YEAR,y=debt_asset*200),
+              colour="grey10", size = 3, vjust = 2)+
+  geom_text(aes(label=round(average_debt), 
+                x=YEAR, y=average_debt), 
+              colour="grey10", size = 3, vjust = -1)+
+  scale_x_continuous(name = "Survey Year",
+                       limits = c(1986, 2019),
+                       breaks = seq(1989, 2016, by = 3),
+                       expand = c(0, 0)) +
+  scale_y_continuous(name = "Average Debt \nby 1,000 dollars",
+                     limits = c(0,400),
+                     sec.axis = sec_axis(~./200, name = "debt/asset \n[%]")) +
+  scale_colour_manual(" ", values=c("debt/asset" = "#CC6600"))+ 
+  #add a second y-axis for the ratio
+  scale_fill_manual("",values="#FFCC66")+
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "top",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("1.Debt over time")
+
+```
+
+In chart1, the line chart shows the trend of average debt/asset ratio from 1989 to 2016 and the bar chart shows the trend of average debt from 1989 to 2016.   
+Although the average amount of debt fluctuated, it did not make a great increase over the years. However, the debt-to-asset ratio increased in a great scale over time and even got over 1 after 2010.    
+The combination of line and bar chart can show the amount of debt and the trend of ratio over year at the same time therefore this chart is proper for the research.
+
+
+### The proportion of Student loan
+
+**dataset**
+```{r}
+scf_loan <- scf %>%
+  select(CASEID, YEAR, DEBT, EDN_INST, NH_MORT, OTHLOC, CCBAL, INSTALL, VEH_INST) %>%
+  group_by(YEAR) %>%
+  summarise(education = round(mean(EDN_INST),2),
+            mortgage = round(mean(NH_MORT),2),
+            other = round(mean(OTHLOC),2),
+            `credit card` = round(mean(CCBAL),2),
+            installment = round(mean(INSTALL),2),
+            vehicle = round(mean(VEH_INST),2))%>%
+  gather(key = "loan", value = "amount", education, mortgage,other,`credit card`,installment,vehicle) %>%
+  split(.$YEAR)%>%
+  map(~mutate(.,prop = round(.$amount/sum(.$amount),2)))%>% 
+  #calculate the proportion by year
+  bind_rows()
+
+scf_loan$loan <- factor(scf_loan$loan,
+                      levels = c("mortgage","installment",
+                                 "vehicle","credit card",
+                                 "other","education")) 
+#education should be the last level in order to make the changes of proportion clear
+```
+
+**chart2**
+```{r}
+loan <- ggplot(scf_loan)+
+  geom_col(aes(x = YEAR, y = amount, fill = loan),position = "fill", width = 1)+
+  scale_x_continuous(name = "Survey Year",
+                       limits = c(1986, 2019),
+                       breaks = seq(1989, 2016, by = 3),
+                       expand = c(0, 0)) +
+  scale_y_continuous(name = "proportion")+
+  coord_flip()+
+  scale_fill_manual(values = c("#FFCC66","#FF9900","#CC6600","#CC6633","#993300","#330000")) +
+  theme_minimal()+
+  guides(fill = guide_legend(nrow = 1)) +
+  theme(legend.title = element_blank(),
+        legend.justification = 0.05,
+        legend.position = "top",
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.key.height=unit(1,"line"),
+        legend.key.width=unit(1,"line"),
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("2.Proportion of Loans")
+
+loan
+```
+
+Chart2 shows the proportion of the average of different loans every survey year.    
+Comparing with other type of loans, student loan only takes a small proportion in debt (the largest is about 3% in 2016), but it got more important from 1989 to 2016. Mortage loan and installment loan are the top 2 loan among all the loans. Mortage loan takes more than a half proportion of the debt in most of the survey years.
+
+
+### Student Loan over time
+
+**dataset**
+```{r}
+scf_edu <- scf %>%
+  select(CASEID,YEAR,DEBT,ASSET,EDN_INST) %>%
+  filter(DEBT != 0) %>%
+  mutate(edu_ratio = EDN_INST/DEBT) %>%
+  group_by(YEAR) %>%
+  summarise(average_edu_ratio = mean(edu_ratio),average_edu = mean(EDN_INST))
+```
+
+**chart3**
+```{r}
+ggplot(scf_edu) + 
+  geom_bar(aes(x=YEAR, y= average_edu, fill="edu"),
+             stat="identity", width = 1)+
+  geom_line(aes(x=YEAR, y=average_edu_ratio*100000,
+              color = "ratio"),
+              group = 1, size = 1.2)+
+  geom_text(aes(label=round(average_edu_ratio*100,2), 
+                x=YEAR,y=average_edu_ratio*100000),
+              colour="grey10", size = 3, vjust = -1)+
+  geom_text(aes(label=round(average_edu), 
+                x=YEAR, y=average_edu), 
+              colour="grey10", size = 3, vjust = -1)+
+  scale_x_continuous(name = "Survey Year",
+                       limits = c(1986, 2019),
+                       breaks = seq(1989, 2016, by = 3),
+                       expand = c(0, 0)) +
+  scale_y_continuous(name = "Average Education Loan",
+                     limits = c(0,15000),
+                     sec.axis = sec_axis(~./1000,name = "education loan/debt \n[%]"))+
+  scale_colour_manual(" ", values=c("ratio" = "#CC6600"))+
+  scale_fill_manual("",values="#FFCC66")+
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "top",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("Education Loan over time")
+```
+
+In chart3, the line chart shows the trend of average student_loan/debt ratio from 1989 to 2016 and the bar chart shows the trend of average student loan from 1989 to 2016.    
+The proportion of the Student Loan in the line graph is calculated by EDN_INST/DEBT. Noted that there are many respondents without any debt, so these respondents are removed from this analysis. The proportions of student loan in this line graph are larger than the proportions in stacked 100% bar chart above because of the different calculation methods. The proportion and the average amount of student loan have been increasing over time.     
+Regardlessness of the different nunmber in chart2 and chart3, the evidence shows that student loan does become more important over years.
+
+The combination of line and bar chart can show the amount of student loan and the trend of ratio over year at the same time; however, it cannot indicates the other kinds of loans and there proportion in the debt. Chart2 can give the reader a direct feeling of the proportion of each loan and the change of student loan over years. Therefore, I recommand chart2 to show the growing importance of student loan over time.
+
+
+## 2.Tell me who you are
+### Get married and kids, get stable and broke.
+
+This topic is a discussion of the relationship between student loan and the number of kids in different the marital status in 2016. I use two kinds of visualization in this discussion. The first, chart4, is a bubble chart with fit line by the method of loess. The second, chart5, is a dodged bar chart with the fit line.
+
+**dataset**
+```{r}
+scf_2016 <- scf %>%
+  filter(YEAR == 2016)%>%
+  select(CASEID,YEAR,DEBT,ASSET,EDN_INST, EDCL, AGE, FAMSTRUCT, MARRIED,KIDS,EDUC,HHSEX,RACE)
+
+scf_2016$MARRIED <- factor(scf_2016$MARRIED,
+                           levels = c("1","2"),
+                           labels = c("Married/Living with partner",
+                                      "Neither married nor living with partner"))
+
+scf_marital <- scf_2016 %>%
+  group_by(MARRIED, KIDS) %>%
+  summarise(edu_loan = mean(EDN_INST), n = n())
+#n for the number of respondents in this category
+```
+```{r}
+#check the mean and standard deviation of student loan in different marital status
+scf_marital %>%
+  group_by(MARRIED)%>%
+  summarise(mean = mean(edu_loan), sd = sd(edu_loan))
+```
+
+**chart4: bubble and fit line**
+```{r}
+ggplot(scf_marital,aes(x = KIDS))+
+  geom_point(aes(y = edu_loan, group = MARRIED, 
+                 color = MARRIED, size = n), alpha = 0.8)+
+  geom_smooth(aes(y = edu_loan, group = MARRIED, color = MARRIED),
+               method = 'loess',se = FALSE)+
+  scale_x_continuous(name = "Number of Kids",
+                     breaks = seq(0,7, by = 1))+
+  scale_y_continuous(name = "Average Student Loan",
+                     breaks = seq(0,12500, by = 2500))+
+  scale_colour_manual(name = "Marital Status", 
+                      values=c("#FFCC66", "#CC6600"))+
+  scale_size(name = "Number of Observations",
+             range = c(4,12))+
+  theme_minimal()+
+  theme(legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("4.Get married and kids, get stable and broke")
+
+```
+
+The fit line and the location of the bubble in chart4 show the relationship between the number of kids and the student loan. The color shows the different marital status and the size of the bubble shows the number of respondents in each category which indicates the bias of this analysis.   
+The stability here does not mean that marriage helps in saving money to make a more stable life. In fact, get married makes a stable and high expense for educational loans no matter how many children the household has. The average education loan in the married respondent is 8378.24 dollars, which is about 2000 dollars higher than the others. Also, we can tell from the lower standard deviation that the higher stability of expenses on educational loans that married people have.     
+As for the people who are neither married or living with a partner, the average educational loan expenses can hit the top at almost 12000 dollars if they have 3 children; however, it goes down on a large scale when the number of children is over 3.       
+Additionally, no matter married or not, people without kids usually pay fewer education loans as it shows in the graph.     
+Noted that the result has a bias because the number of observations is relatively limited the more children the households have. 
+
+**chart5: bar chart and fit line**
+```{r}
+ggplot(scf_marital,aes(x = KIDS))+
+  geom_bar(aes(y = edu_loan, group = MARRIED, fill = MARRIED),
+              size  = 4, width = 0.5, stat = "identity", alpha =0.7,
+           position=position_dodge())+
+  geom_smooth(aes(y = edu_loan, group = MARRIED, color = MARRIED),
+               method = 'loess',se = FALSE)+
+  geom_text(aes(label=round(edu_loan), 
+                y=edu_loan, group = MARRIED), 
+            colour="grey10", size = 3, vjust = -1, 
+            position = position_dodge(0.9))+
+  scale_x_continuous(name = "Number of Kids",
+                     breaks = seq(0,7, by = 1))+
+  scale_y_continuous(name = "Average Student Loan",
+                     limits = c(0,14000),
+                     breaks = seq(0,15000, by = 2500))+
+  scale_colour_manual(name = "average edu loan", 
+                      values=c("#CC6666","#990033"))+
+  scale_fill_manual(name = "average edu loan", 
+                      values=c("#FFCC66", "#CC6600"))+
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "top",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("5.Get married and kids, get stable and broke")
+```
+
+We can draw the same conclusion as chart4 from chart5 except for the number of respondents in each category. Additionally, the bar chart in chart5 can tell the amount of average student loan more clearly.    
+
+For getting more information, I think chart4 is better than chart5 in this topic. Chart4 not only displays the relationship between debt, kids and marriage, but shows the number of people in each category in the survey.
+
+
+### Young, Smart but Poor
+
+This topic discusses the relationship between age and student loan in different education background in 2016 with scatter and fit line (chart6).
+
+**dataset**
+```{r}
+scf_age <- scf_2016 %>%
+  group_by(AGE, EDCL)%>%
+  summarise(edu_loan = round(mean(EDN_INST),2),n())
+
+scf_age$edu <- factor(scf_age$EDCL,
+                       levels = c("1","2","3","4"),
+                       labels = c("No high school diploma/GED",
+                                  "High school diploma/GED",
+                                  "Some college","College degree"))
+```
+
+**chart6**
+```{r}
+age_edu <- ggplot(scf_age, aes(x = AGE,y = edu_loan))+
+  geom_point(aes(color = edu),shape = 1,size = 2,stroke = 1.5)+
+  geom_smooth(color = "#990000", method = "loess", se = FALSE)+
+  scale_x_continuous(name = "Age of Household",
+                     breaks = seq(18,96,by=6))+
+  scale_y_continuous(name = "Average Student Loan",
+                     breaks = seq(0,50000,by = 10000))+
+  scale_color_manual(values = c("#FFCC66","#FF9900","#CC6600","#660000"))+
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "top",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("6.Young, Smart but Poor")
+age_edu 
+```
+
+Each point in the scatter plot shows the average student loan in an certain age and education background. The darker of the point's color, the higher education the respondent got. The fit line shows the relationship between age and student loan as a whole.   
+The color in chart6 tells that people with high degree tend to have more student loan. For instance the average student loan of college degree people at age of 28 can be more than 55,000 dollars, while the one with other degrees are all less than 20,000 dollars.    
+For all kind s of observations, the average student loan goes up with age before about 30, then it decrease as getting older. After about 70, the average amount of student loan get zero no matter the educational background.    
+
+The scatter plot with color can give readers a clear information of the education background pattern and the fit line shows the relationship between age and student loan well. Therefore, Chart6 is suitable for this topic.
+
+
+## 3.Wealth and Income Distribution
+
+This section discusses the relationship between student loan and both networth and income in 2016 with two simple bar charts (chart7).
+
+**dataset**
+```{r}
+scf_money <- scf %>%
+  filter(YEAR == 2016)%>%
+  select(CASEID,YEAR,DEBT,ASSET,EDN_INST, INCOME, INCCAT, NETWORTH, NWCAT)
+
+#make networth and income have the same number of categories and convert it into percentile scale.
+scf_money$NWCAT <- scf_money$NWCAT*20-10
+scf_money$INCCAT[scf_money$INCCAT == 6] <- 5
+scf_money$INCCAT <- scf_money$INCCAT*20-10
+```
+```{r}
+#networth percentile and student loan
+scf_nw <- scf_money %>%
+  group_by(NWCAT) %>%
+  summarise(networth = median(NETWORTH), edu_loan = mean(EDN_INST))%>%
+  mutate(percentile = NWCAT) %>%
+  select(percentile,networth,edu_loan)%>%
+  gather(key = "key",value = "value",networth)%>%
+  select(percentile,key,edu_loan)
+#income percentile and student loan
+scf_inc <- scf_money %>%
+  group_by(INCCAT) %>%
+  summarise(income = median(INCOME), edu_loan = mean(EDN_INST))%>%
+  mutate(percentile = INCCAT)%>%
+  select(percentile,income,edu_loan)%>%
+  gather(key = "key",value = "value",income)%>%
+  select(percentile,key,edu_loan)
+#combine
+scf_money2 <- rbind(scf_nw,scf_inc)
+```
+
+**chart7**
+```{r}
+ggplot(scf_money2)+
+  geom_bar(aes(x = percentile, y = edu_loan, group = key, fill = key), 
+           stat = "identity", width = 10)+
+  facet_wrap(~ key)+ #make it into two seperate charts
+  geom_text(aes(label=round(edu_loan), x = percentile, y=edu_loan, 
+                group = key), colour="grey10", size = 3, vjust = -1)+
+  scale_x_continuous(name = "percentile",
+                     limits = c(0,100),
+                     breaks = seq(0,100,by=20))+
+  scale_y_continuous(name = "Average Student Loan",
+                     limits = c(0,18000))+
+  scale_fill_manual(name = "category", 
+                      values=c("#FFCC66", "#CC6600"))+
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("7.Wealth and Income Distribution")
+
+```
+
+The bar chart on the left in chart7 shows that the average student loan increases then decreases as income going up. People in 40-60 percentile of income have the highest average student loan, 9266 dollars. This maybe because the higher-income class tends to spend more on education but they can pay more or pay off with there own income without the help of debt when the income gets even higher. Poor middle class:(    
+However, the discussion on networth shows a totally different pattern. Less networth reveals more debt, especially first 20% (average student loan more than 17,000 dollars) as it displays on the right. People from 20% to 80% percentile have an average student loan between 4,000 and 6,000 dollars, while 80% to 100% have the average loan less than 2,000 dollars.
+
+Two seperate bar charts can make reader understand the student loan in different networth and income and compare the patterns of them easily. Therefore, chart7 is recommend for discussing wealth and income distribution.
+
+
+## 4.Going broke
+
+### Bankruptcy and Student Loan
+
+This part discusses the proportion of bankruptcy with and without student loans over time after 1998 because there is no bankruptcy reported in the original dataset before. 
+
+**dataset**
+```{r}
+scf_broke <- scf %>%
+  filter(YEAR >= 1998) %>%
+  select(YEAR,EDN_INST, BNKRUPLAST5)
+
+#divide into two categories: with and without student loan
+scf_broke$LOAN <- ifelse(scf_broke$EDN_INST != 0, "had loan", "no loan")
+
+scf_broke$BNKRUPLAST5 <- factor(scf_broke$BNKRUPLAST5,
+                                levels = c("1","0"),
+                                labels = c("has",
+                                           "no"))
+#count the number of each categories
+scf_broke <- scf_broke %>%
+  group_by(YEAR, BNKRUPLAST5, LOAN)%>%
+  summarise(n=n()) %>%
+  spread(BNKRUPLAST5,n) 
+scf_broke[is.na(scf_broke)] <- 0
+
+#the proportion of bankruptcy
+scf_broke <- scf_broke %>%
+  mutate(broke = has/(no+has))
+```
+```{r}
+#the average proportion of bankruptcy with and without loan
+scf_broke %>%
+  group_by(LOAN)%>%
+  summarise(mean(broke))
+```
+
+**chart8**
+```{r}
+ggplot(scf_broke,aes(x = YEAR, y = broke*100, group = LOAN, color = LOAN))+
+  geom_line(size = 1)+
+  geom_point(size = 3)+
+  geom_hline(yintercept = c(5.12,2.85), 
+             lty=2,color = c("#FFCC66", "#CC6600"))+ 
+  #add the average line to the chart
+  geom_text(aes(label=round(broke*100,2), x = YEAR, y=broke*100, 
+                group = LOAN), colour="grey10", size = 3, vjust = -1)+
+  scale_x_continuous(name = "Survey Year",
+                       limits = c(1995, 2019),
+                       breaks = seq(1995, 2019, by = 3),
+                       expand = c(0, 0))+
+  scale_y_continuous(name = "The proportion of bankruptcy",
+                     limits = c(2,6),
+                     breaks = seq(2,6,by=1))+
+  scale_color_manual(name = "student loan",
+                    values=c("#FFCC66", "#CC6600"))+
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "top",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  annotate("text", x = c(2019,2019), y = c(5.12,2.85), adj=1, 
+           label = c("5.12%", "2.85%"),color=c("#FFCC66", "#CC6600"))+
+  ggtitle("8. Student Loan leads to a higher Bankruptcy")
+```
+
+The line graph shows how the proportion varies over time and the color indicates the difference of proportion in student loan status. The proportion of bankruptcy does not change in great scale from 1998 to 2016. The respondents with student loan do have a higher possibility (5.12%) of having bankruptcy compared with those who do not have a student loan (2.85%). 
+
+Chart8 displays the difference in bankruptcy proportion with and without loan status by line chart. However, since there is no obvious trend over time, I suppose bar chart also matches this topic.
+
+
+### food expense and go broke
+
+Two kinds of charts are used in this discussion. Chart9 is a series of pie charts and chart10 is a stacked bar chart.
+
+**dataset**
+```{r}
+scf_food1 <- scf %>% #bankruptcy and food expense
+  select(BNKRUPLAST5,FOODDELV, FOODHOME, FOODAWAY) %>%
+  group_by(BNKRUPLAST5) %>%
+  summarise(delivery = mean(FOODDELV), home = mean(FOODHOME), away = mean(FOODAWAY)) %>%
+  gather(key = "key", value = "value", delivery, away, home)%>%
+  mutate(order = c(3,3,2,2,1,1)) #order for the plot
+
+scf_food1$broke <- factor(scf_food1$BNKRUPLAST5,
+                                levels = c("1","0"),
+                                labels = c("has bankruptcy",
+                                           "no bankruptcy"))
+
+scf_food2 <- scf %>% #foreclose and food expense
+  select(FORECLLAST5,FOODDELV, FOODHOME, FOODAWAY) %>%
+  group_by(FORECLLAST5) %>%
+  summarise(delivery = mean(FOODDELV), home = mean(FOODHOME), away = mean(FOODAWAY)) %>%
+  gather(key = "key", value = "value", delivery, away, home)%>%
+  mutate(order = c(3,3,2,2,1,1))
+
+scf_food2$broke <- factor(scf_food2$FORECLLAST5,
+                                levels = c("1","0"),
+                                labels = c("has foreclose",
+                                           "no foreclose"))
+
+scf_food <- rbind(scf_food1[,2:5], scf_food2[,2:5])
+```
+
+**chart9**
+```{r}
+ggplot(scf_food, aes(x="", y=value, fill=key))+
+  geom_bar(width = 1, stat = "identity",position = "fill")+
+  facet_wrap(~ broke)+
+  coord_polar("y", start=0)+
+  scale_fill_manual(values=c("#CC6600","#660000","#FFCC66"))+
+  theme_minimal()+
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid  = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("9.Debt Struggles makes food at home")
+```
+
+Pie charts in chart9 show the proportion of different kinds of food expense in different broke status. No matter bankruptcy or foreclose, people without these problems spend more on food away from home.
+
+**chart10**
+```{r}
+#calculate the cumsum for the geom_text
+scf_food_cum <- plyr::ddply(scf_food, "broke",
+                   transform, ypos=cumsum(value))
+
+ggplot(scf_food_cum,aes(x = broke))+
+  geom_bar(aes(y = value, group = order, fill = key),
+              stat = "identity", width = 0.5)+
+  geom_text(aes(label = round(value), y = ypos, group = order),
+            size = 3, color = "grey10", vjust = -1)+
+  scale_y_continuous(name = "Expenses on Food",
+                     limits = c(0,9000),
+                     breaks = seq(0,9000, by = 2000))+
+  xlab("Broke Status")+
+  scale_fill_manual(values=c("#CC6600","#660000","#FFCC66"))+
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10, color = "gray10"),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", color = "black", size = 20))+
+  ggtitle("10.Debt Struggles makes food at home")
+```
+
+The stacked bar chart indicates the amount of the expenses on food together with the proportion. For the bankruptcy, people with the problem spend less on delivery and away and also in total on average. As for people struggling with foreclose, though they have a higher proportion of home food expense, they still spend more than 2,000 dollars in total than those without foreclose issue. We can tell from chart10 that there is a non-thrifty behavior in foreclose.
+
+Chart10 has a better performance than chart9 because it provides some extra information of the amount of the spending as well as the proportion. It can show the actual non-thrifty behavior of respondents compared with chart9. Therefore, I recommand use stacked bar chart here.
+
+## 5.Interaction
+
+The scatter plot is usually not easy to tell apart from each point. Therefore, adding an interaction to the scatter plot is necessary. I made an interaction to chart6 so that readers can see the student loan, age and degree of each point.
+
+```{r}
+ggplotly(age_edu)%>%
+  layout(legend = list(x = 0.5, y = 1))
+```
+
+In original chart2, we can only see the proportion but not the actual average amount of different loans, so that's why I add an interaction to thus chart. 
+
+```{r}
+ggplotly(loan, tooltip = c("loan","amount"))
+```
+
+
+## 6. Data Table
+
+The table shows both the amount and proportion of loan from different category in survey year from the datatable. Readers can select the year and loan or even filter it by setting the range of amount and proportion.
+
+```{r}
+pretty_headers <- 
+  gsub("[.]", " ", colnames(scf_loan)) %>%
+  str_to_title()
+
+scf_loan %>%
+  datatable(
+    rownames = FALSE,
+    colnames = pretty_headers,
+    filter = list(position = "top"),
+    options = list(language = list(sSearch = "Filter:"))
+  )
+```
+
